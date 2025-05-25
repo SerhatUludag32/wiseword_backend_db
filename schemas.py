@@ -10,6 +10,13 @@ class UserLogin(BaseModel):
     email: str
     password: str
 
+class CodeVerification(BaseModel):
+    email: str
+    code: str
+
+class ResendVerification(BaseModel):
+    email: str
+
 class MessageCreate(BaseModel):
     chat_id: int
     content: str

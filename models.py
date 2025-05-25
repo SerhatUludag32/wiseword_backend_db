@@ -10,7 +10,8 @@ class User(Base):
     nickname = Column(String)
     hashed_password = Column(String)
     is_verified = Column(Boolean, default=False)
-    verification_token = Column(String, nullable=True)
+    verification_code = Column(String(6), nullable=True)  # 6-digit verification code
+    code_expires_at = Column(DateTime, nullable=True)     # Code expiration time
     created_at = Column(DateTime, default=datetime.utcnow)
 
 class Persona(Base):

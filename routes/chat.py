@@ -18,7 +18,7 @@ model = genai.GenerativeModel("gemini-2.5-flash-preview-05-20")
 router = APIRouter()
 security = HTTPBearer()
 
-SECRET_KEY = "your-secret-key-for-school-project"
+SECRET_KEY = os.getenv("SECRET_KEY")
 ALGORITHM = "HS256"
 
 def get_db():

@@ -3,7 +3,6 @@ import os
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from dotenv import load_dotenv
-import secrets
 
 load_dotenv()
 
@@ -13,47 +12,43 @@ class EmailService:
         self.smtp_port = 587
         self.email = os.getenv("GMAIL_EMAIL")
         self.password = os.getenv("GMAIL_APP_PASSWORD")  # App-specific password
-        
-    def generate_verification_token(self) -> str:
-        """Generate a secure verification token"""
-        return secrets.token_urlsafe(32)
     
-    def send_verification_email(self, to_email: str, verification_token: str, base_url: str = "http://127.0.0.1:8000"):
-        """Send verification email with token"""
+    def send_verification_email(self, to_email: str, verification_code: str):
+        """Send verification email with 6-digit code"""
         try:
             # Create message
             msg = MIMEMultipart('alternative')
             msg['From'] = f"Wise Words <{self.email}>"
             msg['To'] = to_email
-            msg['Subject'] = "Wise Words - Email Verification"
+            msg['Subject'] = "Wise Words - Email Verification Code"
             msg['Reply-To'] = self.email
             msg['X-Mailer'] = "Wise Words App"
             
-            # Create verification URL
-            verification_url = f"{base_url}/auth/verify-email?token={verification_token}"
-            
-            # Email body
+            # Email body with verification code
             body = f"""
             <html>
             <body style="font-family: Arial, sans-serif;">
                 <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
                     <h2 style="color: #333;">Welcome to Wise Words! 🧠</h2>
                     
-                    <p>Thank you for registering! Please verify your email address by clicking the button below:</p>
+                    <p>Thank you for registering! Please verify your email address by entering this 6-digit code:</p>
                     
                     <div style="text-align: center; margin: 30px 0;">
-                        <a href="{verification_url}" 
-                           style="background-color: #4CAF50; color: white; padding: 12px 24px; 
-                                  text-decoration: none; border-radius: 4px; display: inline-block;">
-                            Verify Email Address
-                        </a>
+                        <div style="background-color: #f5f5f5; border: 2px dashed #4CAF50; 
+                                    border-radius: 8px; padding: 20px; display: inline-block;">
+                            <span style="font-size: 32px; font-weight: bold; color: #4CAF50; 
+                                         letter-spacing: 5px; font-family: monospace;">
+                                {verification_code}
+                            </span>
+                        </div>
                     </div>
                     
-                    <p>Or copy and paste this link in your browser:</p>
-                    <p style="word-break: break-all; color: #666;">{verification_url}</p>
+                    <p style="text-align: center; color: #666;">
+                        Enter this code in the verification form to complete your registration.
+                    </p>
                     
                     <p style="margin-top: 30px; color: #888; font-size: 12px;">
-                        This verification link will expire in 24 hours.
+                        ⏰ This verification code will expire in 15 minutes for security.
                     </p>
                     
                     <hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;">
@@ -70,11 +65,13 @@ class EmailService:
             text_body = f"""
 Welcome to Wise Words!
 
-Thank you for registering! Please verify your email address by visiting this link:
+Thank you for registering! Please verify your email address by entering this 6-digit code:
 
-{verification_url}
+{verification_code}
 
-This verification link will expire in 24 hours.
+Enter this code in the verification form to complete your registration.
+
+This verification code will expire in 15 minutes for security.
 
 If you didn't register for Wise Words, please ignore this email.
             """
@@ -93,7 +90,7 @@ If you didn't register for Wise Words, please ignore this email.
             server.sendmail(self.email, to_email, text)
             server.quit()
             
-            print(f"✅ Verification email sent to {to_email}")
+            print(f"✅ Verification code email sent to {to_email}")
             return True
             
         except Exception as e:
