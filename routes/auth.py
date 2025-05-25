@@ -33,17 +33,28 @@ def register(user: schemas.UserCreate, db: Session = Depends(get_db)):
     if db_user:
         raise HTTPException(status_code=400, detail="Email already registered")
     
-    # Create new user
+    # Create new user (unverified)
     new_user = crud.create_user(db=db, user=user)
     
-    # Create access token
-    access_token = create_access_token(data={"sub": new_user.email, "user_id": new_user.id})
+    # Send verification email
+    from email_service import email_service
+    email_sent = email_service.send_verification_email(
+        to_email=new_user.email,
+        verification_token=new_user.verification_token
+    )
+    
+    if not email_sent:
+        # Still register user but warn about email
+        return {
+            "message": "User registered successfully, but verification email failed to send. Please contact support.",
+            "email_sent": False,
+            "user": {"id": new_user.id, "email": new_user.email, "nickname": new_user.nickname, "is_verified": new_user.is_verified}
+        }
     
     return {
-        "message": "User registered successfully",
-        "access_token": access_token,
-        "token_type": "bearer",
-        "user": {"id": new_user.id, "email": new_user.email, "nickname": new_user.nickname}
+        "message": "User registered successfully! Please check your email for verification link.",
+        "email_sent": True,
+        "user": {"id": new_user.id, "email": new_user.email, "nickname": new_user.nickname, "is_verified": new_user.is_verified}
     }
 
 @router.post("/login")
@@ -57,6 +68,13 @@ def login(user_login: schemas.UserLogin, db: Session = Depends(get_db)):
     if not crud.verify_password(user_login.password, db_user.hashed_password):
         raise HTTPException(status_code=400, detail="Invalid email or password")
     
+    # Check if email is verified
+    if not db_user.is_verified:
+        raise HTTPException(
+            status_code=400, 
+            detail="Email not verified. Please check your email and click the verification link."
+        )
+    
     # Create access token
     access_token = create_access_token(data={"sub": db_user.email, "user_id": db_user.id})
     
@@ -64,5 +82,47 @@ def login(user_login: schemas.UserLogin, db: Session = Depends(get_db)):
         "message": "Login successful",
         "access_token": access_token,
         "token_type": "bearer",
-        "user": {"id": db_user.id, "email": db_user.email, "nickname": db_user.nickname}
+        "user": {"id": db_user.id, "email": db_user.email, "nickname": db_user.nickname, "is_verified": db_user.is_verified}
     }
+
+@router.get("/verify-email")
+def verify_email(token: str, db: Session = Depends(get_db)):
+    # Verify the email with the token
+    user = crud.verify_user_email(db, token)
+    if not user:
+        raise HTTPException(status_code=400, detail="Invalid or expired verification token")
+    
+    # Send welcome email
+    from email_service import email_service
+    email_service.send_welcome_email(user.email, user.nickname)
+    
+    return {
+        "message": "Email verified successfully! Welcome to Wise Words!",
+        "user": {"id": user.id, "email": user.email, "nickname": user.nickname, "is_verified": user.is_verified}
+    }
+
+@router.post("/resend-verification")
+def resend_verification(email: str, db: Session = Depends(get_db)):
+    # Get user by email
+    user = crud.get_user_by_email(db, email)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    if user.is_verified:
+        return {"message": "Email is already verified"}
+    
+    # Generate new verification token
+    from email_service import email_service
+    user.verification_token = email_service.generate_verification_token()
+    db.commit()
+    
+    # Send verification email
+    email_sent = email_service.send_verification_email(
+        to_email=user.email,
+        verification_token=user.verification_token
+    )
+    
+    if email_sent:
+        return {"message": "Verification email sent successfully"}
+    else:
+        raise HTTPException(status_code=500, detail="Failed to send verification email")

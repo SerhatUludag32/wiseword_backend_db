@@ -2,6 +2,7 @@ from sqlalchemy.orm import Session
 import models, schemas
 from passlib.context import CryptContext
 from datetime import datetime
+from email_service import email_service
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
@@ -9,17 +10,35 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 def get_user_by_email(db: Session, email: str):
     return db.query(models.User).filter(models.User.email == email).first()
 
+def get_user_by_verification_token(db: Session, token: str):
+    return db.query(models.User).filter(models.User.verification_token == token).first()
+
 def create_user(db: Session, user: schemas.UserCreate):
+    # Generate verification token
+    verification_token = email_service.generate_verification_token()
+    
     hashed_password = pwd_context.hash(user.password)
     db_user = models.User(
         email=user.email,
         nickname=user.nickname,
-        hashed_password=hashed_password
+        hashed_password=hashed_password,
+        is_verified=False,
+        verification_token=verification_token
     )
     db.add(db_user)
     db.commit()
     db.refresh(db_user)
     return db_user
+
+def verify_user_email(db: Session, verification_token: str):
+    user = get_user_by_verification_token(db, verification_token)
+    if user:
+        user.is_verified = True
+        user.verification_token = None  # Clear the token
+        db.commit()
+        db.refresh(user)
+        return user
+    return None
 
 def verify_password(plain_password, hashed_password):
     return pwd_context.verify(plain_password, hashed_password)

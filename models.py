@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, Text
+from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, Text, Boolean
 from sqlalchemy.orm import relationship
 from database import Base
 from datetime import datetime
@@ -9,6 +9,9 @@ class User(Base):
     email = Column(String, unique=True, index=True)
     nickname = Column(String)
     hashed_password = Column(String)
+    is_verified = Column(Boolean, default=False)
+    verification_token = Column(String, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
 
 class Persona(Base):
     __tablename__ = "personas"
