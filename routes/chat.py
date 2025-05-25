@@ -77,28 +77,72 @@ def generate_ai_response(messages: list, system_prompt: str):
     except Exception as e:
         return f"I apologize, but I'm having trouble responding right now. Please try again."
 
-@router.get("/personas")
+@router.get(
+    "/personas",
+    response_model=schemas.PersonasListResponse,
+    summary="👥 Get Available Personas",
+    description="Retrieve list of all available historical figures for conversation",
+    responses={
+        200: {"description": "List of available personas", "model": schemas.PersonasListResponse}
+    }
+)
 def get_personas(db: Session = Depends(get_db)):
     personas = crud.get_personas(db)
-    return {"personas": personas}
+    persona_list = [
+        schemas.PersonaResponse(
+            id=p.id,
+            name=p.name, 
+            description=p.description
+        ) for p in personas
+    ]
+    return schemas.PersonasListResponse(personas=persona_list)
 
-@router.post("/start")
+@router.post(
+    "/start",
+    response_model=schemas.ChatStartResponse,
+    summary="🚀 Start New Chat",
+    description="Begin a new conversation with a historical figure",
+    responses={
+        200: {"description": "Chat started successfully", "model": schemas.ChatStartResponse},
+        401: {"description": "Authentication required", "model": schemas.ErrorResponse},
+        404: {"description": "Persona not found", "model": schemas.ErrorResponse}
+    }
+)
 def start_chat(persona_id: int, current_user = Depends(get_current_user), db: Session = Depends(get_db)):
     # Check if persona exists
     persona = crud.get_persona_by_id(db, persona_id)
     if not persona:
-        raise HTTPException(status_code=404, detail="Persona not found")
+        raise HTTPException(
+            status_code=404, 
+            detail=f"Historical figure with ID {persona_id} not found. Use /chat/personas to see available options."
+        )
     
     # Create new chat
     chat = crud.create_chat(db, current_user.id, persona_id)
     
-    return {
-        "message": "Chat started",
-        "chat_id": chat.id,
-        "persona": {"id": persona.id, "name": persona.name, "description": persona.description}
-    }
+    persona_response = schemas.PersonaResponse(
+        id=persona.id,
+        name=persona.name,
+        description=persona.description
+    )
+    
+    return schemas.ChatStartResponse(
+        message="Chat started successfully! You can now send messages.",
+        chat_id=chat.id,
+        persona=persona_response
+    )
 
-@router.post("/message")
+@router.post(
+    "/message",
+    response_model=schemas.ChatMessageResponse,
+    summary="💬 Send Message (Standard)",
+    description="Send a message and receive complete AI response at once",
+    responses={
+        200: {"description": "Message sent and response received", "model": schemas.ChatMessageResponse},
+        401: {"description": "Authentication required", "model": schemas.ErrorResponse},
+        404: {"description": "Chat not found", "model": schemas.ErrorResponse}
+    }
+)
 def send_message(message: schemas.MessageCreate, current_user = Depends(get_current_user), db: Session = Depends(get_db)):
     # Get chat and verify it belongs to user
     chat = db.query(models.Chat).filter(
@@ -107,7 +151,10 @@ def send_message(message: schemas.MessageCreate, current_user = Depends(get_curr
     ).first()
     
     if not chat:
-        raise HTTPException(status_code=404, detail="Chat not found")
+        raise HTTPException(
+            status_code=404, 
+            detail=f"Chat with ID {message.chat_id} not found or you don't have access to it."
+        )
     
     # Save user message
     user_message = crud.create_message(db, message.chat_id, "user", message.content)
@@ -125,12 +172,54 @@ def send_message(message: schemas.MessageCreate, current_user = Depends(get_curr
     # Save AI response
     ai_message = crud.create_message(db, message.chat_id, "ai", ai_response)
     
-    return {
-        "user_message": {"id": user_message.id, "content": user_message.content, "timestamp": user_message.timestamp},
-        "ai_response": {"id": ai_message.id, "content": ai_message.content, "timestamp": ai_message.timestamp}
-    }
+    user_msg_response = schemas.MessageResponse(
+        id=user_message.id,
+        sender=user_message.sender,
+        content=user_message.content,
+        timestamp=user_message.timestamp
+    )
+    
+    ai_msg_response = schemas.MessageResponse(
+        id=ai_message.id,
+        sender=ai_message.sender,
+        content=ai_message.content,
+        timestamp=ai_message.timestamp
+    )
+    
+    return schemas.ChatMessageResponse(
+        user_message=user_msg_response,
+        ai_response=ai_msg_response
+    )
 
-@router.post("/message/stream")
+@router.post(
+    "/message/stream",
+    summary="⚡ Send Message (Streaming)",
+    description="""
+    Send a message and receive AI response in real-time chunks (like ChatGPT).
+    
+    **Response Format:** Server-Sent Events (SSE)
+    - `{"type": "user_message", "id": 1, "content": "Hello", "timestamp": "..."}`
+    - `{"type": "chunk", "content": "Hello! I'm"}` 
+    - `{"type": "chunk", "content": " Einstein..."}`
+    - `{"type": "complete", "content": "Full response text"}`
+    - `{"type": "ai_message_saved", "id": 2, "timestamp": "..."}`
+    - `{"type": "end"}`
+    
+    **Usage:** Perfect for real-time chat interfaces where you want to show words appearing as AI "thinks"
+    """,
+    responses={
+        200: {
+            "description": "Streaming response with real-time AI chunks",
+            "content": {
+                "text/plain": {
+                    "example": 'data: {"type": "chunk", "content": "Hello!"}\n\ndata: {"type": "end"}\n\n'
+                }
+            }
+        },
+        401: {"description": "Authentication required", "model": schemas.ErrorResponse},
+        404: {"description": "Chat not found", "model": schemas.ErrorResponse}
+    }
+)
 def send_message_stream(message: schemas.MessageCreate, current_user = Depends(get_current_user), db: Session = Depends(get_db)):
     # Get chat and verify it belongs to user
     chat = db.query(models.Chat).filter(
@@ -139,7 +228,10 @@ def send_message_stream(message: schemas.MessageCreate, current_user = Depends(g
     ).first()
     
     if not chat:
-        raise HTTPException(status_code=404, detail="Chat not found")
+        raise HTTPException(
+            status_code=404, 
+            detail=f"Chat with ID {message.chat_id} not found or you don't have access to it."
+        )
     
     # Save user message
     user_message = crud.create_message(db, message.chat_id, "user", message.content)
@@ -186,7 +278,17 @@ def send_message_stream(message: schemas.MessageCreate, current_user = Depends(g
         }
     )
 
-@router.get("/history/{chat_id}")
+@router.get(
+    "/history/{chat_id}",
+    response_model=schemas.ChatHistoryResponse,
+    summary="📜 Get Chat History",
+    description="Retrieve complete conversation history for a specific chat session",
+    responses={
+        200: {"description": "Chat history retrieved successfully", "model": schemas.ChatHistoryResponse},
+        401: {"description": "Authentication required", "model": schemas.ErrorResponse},
+        404: {"description": "Chat not found", "model": schemas.ErrorResponse}
+    }
+)
 def get_chat_history(chat_id: int, current_user = Depends(get_current_user), db: Session = Depends(get_db)):
     # Verify chat belongs to user
     chat = db.query(models.Chat).filter(
@@ -195,11 +297,23 @@ def get_chat_history(chat_id: int, current_user = Depends(get_current_user), db:
     ).first()
     
     if not chat:
-        raise HTTPException(status_code=404, detail="Chat not found")
+        raise HTTPException(
+            status_code=404, 
+            detail=f"Chat with ID {chat_id} not found or you don't have access to it."
+        )
     
     messages = crud.get_chat_messages(db, chat_id)
     
-    return {
-        "chat_id": chat_id,
-        "messages": [{"id": msg.id, "sender": msg.sender, "content": msg.content, "timestamp": msg.timestamp} for msg in messages]
-    }
+    message_responses = [
+        schemas.MessageResponse(
+            id=msg.id,
+            sender=msg.sender,
+            content=msg.content,
+            timestamp=msg.timestamp
+        ) for msg in messages
+    ]
+    
+    return schemas.ChatHistoryResponse(
+        chat_id=chat_id,
+        messages=message_responses
+    )

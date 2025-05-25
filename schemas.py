@@ -1,26 +1,89 @@
-from pydantic import BaseModel
-from typing import Optional
+from pydantic import BaseModel, EmailStr, Field
+from typing import Optional, List
+from datetime import datetime
 
+# Request Models
 class UserCreate(BaseModel):
-    email: str
-    nickname: str
-    password: str
+    email: EmailStr = Field(..., description="Valid email address", example="user@example.com")
+    nickname: str = Field(..., min_length=2, max_length=50, description="Display name", example="John Doe")
+    password: str = Field(..., min_length=6, description="Password (minimum 6 characters)", example="secure123")
 
 class UserLogin(BaseModel):
-    email: str
-    password: str
+    email: EmailStr = Field(..., description="Registered email address", example="user@example.com") 
+    password: str = Field(..., description="User password", example="secure123")
 
 class CodeVerification(BaseModel):
-    email: str
-    code: str
+    email: EmailStr = Field(..., description="Email address to verify", example="user@example.com")
+    code: str = Field(..., min_length=6, max_length=6, description="6-digit verification code", example="123456")
 
 class ResendVerification(BaseModel):
-    email: str
+    email: EmailStr = Field(..., description="Email to resend verification code", example="user@example.com")
 
 class MessageCreate(BaseModel):
-    chat_id: int
-    content: str
+    chat_id: int = Field(..., gt=0, description="ID of the chat session", example=1)
+    content: str = Field(..., min_length=1, max_length=2000, description="Message content", example="Hello Einstein!")
 
-class ChatResponse(BaseModel):
-    chat_id: int
-    messages: list
+# Response Models
+class UserResponse(BaseModel):
+    id: int = Field(..., description="User ID", example=1)
+    email: str = Field(..., description="User email", example="user@example.com")
+    nickname: str = Field(..., description="User display name", example="John Doe")
+    is_verified: bool = Field(..., description="Email verification status", example=True)
+
+class LoginResponse(BaseModel):
+    message: str = Field(..., description="Success message", example="Login successful")
+    access_token: str = Field(..., description="JWT access token", example="eyJhbGciOiJIUzI1NiIs...")
+    token_type: str = Field(..., description="Token type", example="bearer")
+    user: UserResponse
+
+class RegisterResponse(BaseModel):
+    message: str = Field(..., description="Registration result", example="User registered successfully!")
+    email_sent: bool = Field(..., description="Whether verification email was sent", example=True)
+    user: UserResponse
+
+class VerificationResponse(BaseModel):
+    message: str = Field(..., description="Verification result", example="Email verified successfully!")
+    user: UserResponse
+
+class PersonaResponse(BaseModel):
+    id: int = Field(..., description="Persona ID", example=1)
+    name: str = Field(..., description="Historical figure name", example="Albert Einstein")
+    description: str = Field(..., description="Brief description", example="Theoretical physicist")
+
+class PersonasListResponse(BaseModel):
+    personas: List[PersonaResponse] = Field(..., description="Available historical figures")
+
+class ChatStartResponse(BaseModel):
+    message: str = Field(..., description="Chat start confirmation", example="Chat started")
+    chat_id: int = Field(..., description="Chat session ID", example=1)
+    persona: PersonaResponse
+
+class MessageResponse(BaseModel):
+    id: int = Field(..., description="Message ID", example=1)
+    sender: str = Field(..., description="Message sender", example="user")
+    content: str = Field(..., description="Message content", example="Hello!")
+    timestamp: datetime = Field(..., description="Message timestamp")
+
+class ChatMessageResponse(BaseModel):
+    user_message: MessageResponse
+    ai_response: MessageResponse
+
+class ChatHistoryResponse(BaseModel):
+    chat_id: int = Field(..., description="Chat session ID", example=1)
+    messages: List[MessageResponse] = Field(..., description="Chat message history")
+
+# Error Response Models
+class ErrorResponse(BaseModel):
+    error: bool = Field(True, description="Error flag")
+    message: str = Field(..., description="Error message", example="Invalid email or password")
+    status_code: int = Field(..., description="HTTP status code", example=400)
+    path: str = Field(..., description="Request path", example="/auth/login")
+    help: str = Field(..., description="Help message", example="Check API documentation at /docs")
+
+class ValidationErrorDetail(BaseModel):
+    loc: List[str] = Field(..., description="Error location", example=["body", "email"])
+    msg: str = Field(..., description="Error message", example="field required")
+    type: str = Field(..., description="Error type", example="value_error.missing")
+
+class ValidationErrorResponse(BaseModel):
+    detail: List[ValidationErrorDetail] = Field(..., description="Validation error details")
