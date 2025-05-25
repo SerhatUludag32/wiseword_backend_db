@@ -3,11 +3,9 @@ import os
 from dotenv import load_dotenv
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 from database import SessionLocal
 import crud, schemas, models
-import jwt
 import json
 
 load_dotenv()
@@ -16,10 +14,6 @@ genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 model = genai.GenerativeModel("gemini-2.5-flash-preview-05-20")
 
 router = APIRouter()
-security = HTTPBearer()
-
-SECRET_KEY = os.getenv("SECRET_KEY")
-ALGORITHM = "HS256"
 
 def get_db():
     db = SessionLocal()
@@ -27,21 +21,6 @@ def get_db():
         yield db
     finally:
         db.close()
-
-def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security), db: Session = Depends(get_db)):
-    try:
-        payload = jwt.decode(credentials.credentials, SECRET_KEY, algorithms=[ALGORITHM])
-        email: str = payload.get("sub")
-        user_id: int = payload.get("user_id")
-        if email is None or user_id is None:
-            raise HTTPException(status_code=401, detail="Invalid token")
-    except jwt.PyJWTError:
-        raise HTTPException(status_code=401, detail="Invalid token")
-    
-    user = crud.get_user_by_email(db, email=email)
-    if user is None:
-        raise HTTPException(status_code=401, detail="User not found")
-    return user
 
 def generate_ai_response_stream(messages: list, system_prompt: str):
     """Generator function that yields AI response chunks in real-time"""
@@ -104,11 +83,10 @@ def get_personas(db: Session = Depends(get_db)):
     description="Begin a new conversation with a historical figure",
     responses={
         200: {"description": "Chat started successfully", "model": schemas.ChatStartResponse},
-        401: {"description": "Authentication required", "model": schemas.ErrorResponse},
         404: {"description": "Persona not found", "model": schemas.ErrorResponse}
     }
 )
-def start_chat(persona_id: int, current_user = Depends(get_current_user), db: Session = Depends(get_db)):
+def start_chat(persona_id: int, db: Session = Depends(get_db)):
     # Check if persona exists
     persona = crud.get_persona_by_id(db, persona_id)
     if not persona:
@@ -117,8 +95,8 @@ def start_chat(persona_id: int, current_user = Depends(get_current_user), db: Se
             detail=f"Historical figure with ID {persona_id} not found. Use /chat/personas to see available options."
         )
     
-    # Create new chat
-    chat = crud.create_chat(db, current_user.id, persona_id)
+    # Create new chat with a default user ID (1)
+    chat = crud.create_chat(db, 1, persona_id)
     
     persona_response = schemas.PersonaResponse(
         id=persona.id,
@@ -139,21 +117,19 @@ def start_chat(persona_id: int, current_user = Depends(get_current_user), db: Se
     description="Send a message and receive complete AI response at once",
     responses={
         200: {"description": "Message sent and response received", "model": schemas.ChatMessageResponse},
-        401: {"description": "Authentication required", "model": schemas.ErrorResponse},
         404: {"description": "Chat not found", "model": schemas.ErrorResponse}
     }
 )
-def send_message(message: schemas.MessageCreate, current_user = Depends(get_current_user), db: Session = Depends(get_db)):
-    # Get chat and verify it belongs to user
+def send_message(message: schemas.MessageCreate, db: Session = Depends(get_db)):
+    # Get chat
     chat = db.query(models.Chat).filter(
-        models.Chat.id == message.chat_id,
-        models.Chat.user_id == current_user.id
+        models.Chat.id == message.chat_id
     ).first()
     
     if not chat:
         raise HTTPException(
             status_code=404, 
-            detail=f"Chat with ID {message.chat_id} not found or you don't have access to it."
+            detail=f"Chat with ID {message.chat_id} not found."
         )
     
     # Save user message
@@ -216,21 +192,19 @@ def send_message(message: schemas.MessageCreate, current_user = Depends(get_curr
                 }
             }
         },
-        401: {"description": "Authentication required", "model": schemas.ErrorResponse},
         404: {"description": "Chat not found", "model": schemas.ErrorResponse}
     }
 )
-def send_message_stream(message: schemas.MessageCreate, current_user = Depends(get_current_user), db: Session = Depends(get_db)):
-    # Get chat and verify it belongs to user
+def send_message_stream(message: schemas.MessageCreate, db: Session = Depends(get_db)):
+    # Get chat
     chat = db.query(models.Chat).filter(
-        models.Chat.id == message.chat_id,
-        models.Chat.user_id == current_user.id
+        models.Chat.id == message.chat_id
     ).first()
     
     if not chat:
         raise HTTPException(
             status_code=404, 
-            detail=f"Chat with ID {message.chat_id} not found or you don't have access to it."
+            detail=f"Chat with ID {message.chat_id} not found."
         )
     
     # Save user message
@@ -249,7 +223,6 @@ def send_message_stream(message: schemas.MessageCreate, current_user = Depends(g
         # Add initial response with user message info
         yield f"data: {json.dumps({'type': 'user_message', 'id': user_message.id, 'content': user_message.content, 'timestamp': str(user_message.timestamp)})}\n\n"
         
-        # Stream AI response
         for chunk_data in generate_ai_response_stream(message_history + [{"sender": "user", "content": message.content}], persona.prompt):
             yield chunk_data
             
@@ -285,21 +258,19 @@ def send_message_stream(message: schemas.MessageCreate, current_user = Depends(g
     description="Retrieve complete conversation history for a specific chat session",
     responses={
         200: {"description": "Chat history retrieved successfully", "model": schemas.ChatHistoryResponse},
-        401: {"description": "Authentication required", "model": schemas.ErrorResponse},
         404: {"description": "Chat not found", "model": schemas.ErrorResponse}
     }
 )
-def get_chat_history(chat_id: int, current_user = Depends(get_current_user), db: Session = Depends(get_db)):
-    # Verify chat belongs to user
+def get_chat_history(chat_id: int, db: Session = Depends(get_db)):
+    # Get chat
     chat = db.query(models.Chat).filter(
-        models.Chat.id == chat_id,
-        models.Chat.user_id == current_user.id
+        models.Chat.id == chat_id
     ).first()
     
     if not chat:
         raise HTTPException(
             status_code=404, 
-            detail=f"Chat with ID {chat_id} not found or you don't have access to it."
+            detail=f"Chat with ID {chat_id} not found."
         )
     
     messages = crud.get_chat_messages(db, chat_id)
