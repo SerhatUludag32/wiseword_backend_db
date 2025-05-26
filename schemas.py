@@ -19,6 +19,19 @@ class CodeVerification(BaseModel):
 class ResendVerification(BaseModel):
     email: EmailStr = Field(..., description="Email to resend verification code", example="user@example.com")
 
+class PasswordChange(BaseModel):
+    email: EmailStr = Field(..., description="User email address", example="user@example.com")
+    current_password: str = Field(..., min_length=6, description="Current password", example="oldpassword123")
+    new_password: str = Field(..., min_length=6, description="New password (minimum 6 characters)", example="newpassword123")
+
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr = Field(..., description="Email address to send reset code", example="user@example.com")
+
+class ResetPasswordConfirm(BaseModel):
+    email: EmailStr = Field(..., description="Email address", example="user@example.com")
+    reset_code: str = Field(..., min_length=6, max_length=6, description="6-digit reset code from email", example="123456")
+    new_password: str = Field(..., min_length=6, description="New password (minimum 6 characters)", example="newpassword123")
+
 class MessageCreate(BaseModel):
     chat_id: int = Field(..., gt=0, description="ID of the chat session", example=1)
     content: str = Field(..., min_length=1, max_length=2000, description="Message content", example="Hello Einstein!")
@@ -43,6 +56,18 @@ class RegisterResponse(BaseModel):
 
 class VerificationResponse(BaseModel):
     message: str = Field(..., description="Verification result", example="Email verified successfully!")
+    user: UserResponse
+
+class PasswordChangeResponse(BaseModel):
+    message: str = Field(..., description="Password change result", example="Password changed successfully!")
+    user: UserResponse
+
+class ForgotPasswordResponse(BaseModel):
+    message: str = Field(..., description="Forgot password result", example="Reset code sent to your email!")
+    email_sent: bool = Field(..., description="Whether reset email was sent", example=True)
+
+class ResetPasswordResponse(BaseModel):
+    message: str = Field(..., description="Password reset result", example="Password reset successfully!")
     user: UserResponse
 
 class PersonaResponse(BaseModel):
@@ -71,6 +96,17 @@ class ChatMessageResponse(BaseModel):
 class ChatHistoryResponse(BaseModel):
     chat_id: int = Field(..., description="Chat session ID", example=1)
     messages: List[MessageResponse] = Field(..., description="Chat message history")
+
+class ChatSummaryResponse(BaseModel):
+    chat_id: int = Field(..., description="Chat session ID", example=1)
+    persona: PersonaResponse
+    last_message: Optional[str] = Field(None, description="Last message in chat", example="Hello Einstein!")
+    message_count: int = Field(..., description="Total messages in chat", example=5)
+    created_at: datetime = Field(..., description="Chat creation time")
+    last_activity: Optional[datetime] = Field(None, description="Last message timestamp")
+
+class UserChatsResponse(BaseModel):
+    chats: List[ChatSummaryResponse] = Field(..., description="User's chat sessions")
 
 # Error Response Models
 class ErrorResponse(BaseModel):

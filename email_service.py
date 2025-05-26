@@ -153,5 +153,94 @@ If you didn't register for Wise Words, please ignore this email.
             print(f"❌ Failed to send welcome email: {str(e)}")
             return False
 
+    def send_password_reset_email(self, to_email: str, reset_code: str):
+        """Send password reset email with 6-digit code"""
+        try:
+            # Create message
+            msg = MIMEMultipart('alternative')
+            msg['From'] = f"Wise Words <{self.email}>"
+            msg['To'] = to_email
+            msg['Subject'] = "Wise Words - Password Reset Code"
+            msg['Reply-To'] = self.email
+            msg['X-Mailer'] = "Wise Words App"
+            
+            # Email body with reset code
+            body = f"""
+            <html>
+            <body style="font-family: Arial, sans-serif;">
+                <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
+                    <h2 style="color: #333;">🔐 Password Reset Request</h2>
+                    
+                    <p>You requested to reset your password for your Wise Words account. Use this 6-digit code to reset your password:</p>
+                    
+                    <div style="text-align: center; margin: 30px 0;">
+                        <div style="background-color: #f5f5f5; border: 2px dashed #FF6B6B; 
+                                    border-radius: 8px; padding: 20px; display: inline-block;">
+                            <span style="font-size: 32px; font-weight: bold; color: #FF6B6B; 
+                                         letter-spacing: 5px; font-family: monospace;">
+                                {reset_code}
+                            </span>
+                        </div>
+                    </div>
+                    
+                    <p style="text-align: center; color: #666;">
+                        Enter this code along with your email and new password to reset your password.
+                    </p>
+                    
+                    <p style="margin-top: 30px; color: #888; font-size: 12px;">
+                        ⏰ This reset code will expire in 15 minutes for security.
+                    </p>
+                    
+                    <div style="background-color: #fff3cd; border: 1px solid #ffeaa7; border-radius: 4px; padding: 12px; margin: 20px 0;">
+                        <p style="margin: 0; color: #856404; font-size: 14px;">
+                            🛡️ <strong>Security Notice:</strong> If you didn't request this password reset, please ignore this email. Your account remains secure.
+                        </p>
+                    </div>
+                    
+                    <hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;">
+                    <p style="color: #666; font-size: 12px;">
+                        You're receiving this email because a password reset was requested for your Wise Words account.
+                    </p>
+                </div>
+            </body>
+            </html>
+            """
+            
+            # Create plain text version
+            text_body = f"""
+Password Reset Request - Wise Words
+
+You requested to reset your password. Use this 6-digit code to reset your password:
+
+{reset_code}
+
+Enter this code along with your email and new password to reset your password.
+
+This reset code will expire in 15 minutes for security.
+
+If you didn't request this password reset, please ignore this email.
+            """
+            
+            # Attach both plain text and HTML versions
+            msg.attach(MIMEText(text_body, 'plain'))
+            msg.attach(MIMEText(body, 'html'))
+            
+            # Connect to Gmail SMTP server
+            server = smtplib.SMTP(self.smtp_server, self.smtp_port)
+            server.starttls()  # Enable encryption
+            server.login(self.email, self.password)
+            
+            # Send email
+            text = msg.as_string()
+            server.sendmail(self.email, to_email, text)
+            server.quit()
+            
+            print(f"✅ Password reset email sent to {to_email}")
+            return True
+            
+        except Exception as e:
+            print(f"❌ Failed to send password reset email to {to_email}: {str(e)}")
+            return False
+
 # Global instance
 email_service = EmailService() 

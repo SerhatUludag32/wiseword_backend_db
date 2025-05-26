@@ -34,24 +34,37 @@ def create_access_token(data: dict):
     "/register", 
     response_model=schemas.RegisterResponse,
     summary="📝 Register New User",
-    description="Create a new user account and send verification code via email",
+    description="Create a new user account and send verification code via email. If email exists but verification expired, updates the account with new data.",
     responses={
-        200: {"description": "User registered successfully", "model": schemas.RegisterResponse},
-        400: {"description": "Email already registered", "model": schemas.ErrorResponse},
+        200: {"description": "User registered successfully or existing unverified account updated", "model": schemas.RegisterResponse},
+        400: {"description": "Email already verified or registration blocked", "model": schemas.ErrorResponse},
         422: {"description": "Validation error", "model": schemas.ValidationErrorResponse}
     }
 )
 def register(user: schemas.UserCreate, db: Session = Depends(get_db)):
     # Check if user already exists
     db_user = crud.get_user_by_email(db, email=user.email)
-    if db_user:
-        raise HTTPException(
-            status_code=400, 
-            detail="Email already registered. Try logging in or use a different email."
-        )
     
-    # Create new user (unverified)
-    new_user = crud.create_user(db=db, user=user)
+    if db_user:
+        # If user is verified, block registration
+        if db_user.is_verified:
+            raise HTTPException(
+                status_code=400, 
+                detail="Email already registered and verified. Please login instead."
+            )
+        
+        # If user is unverified but verification hasn't expired, suggest resend
+        if not crud.is_verification_expired(db_user):
+            raise HTTPException(
+                status_code=400, 
+                detail="Email already registered but not verified. Please check your email for verification code or use /auth/resend-verification."
+            )
+        
+        # If user is unverified and verification expired, update existing account
+        new_user = crud.update_unverified_user(db, db_user, user)
+    else:
+        # Create new user (unverified)
+        new_user = crud.create_user(db=db, user=user)
     
     # Send verification email with code
     from email_service import email_service
@@ -67,15 +80,21 @@ def register(user: schemas.UserCreate, db: Session = Depends(get_db)):
         is_verified=new_user.is_verified
     )
     
+    # Determine appropriate message
+    if db_user and not db_user.is_verified:
+        success_message = "Registration updated! Previous verification expired. Please check your email for new verification code."
+    else:
+        success_message = "User registered successfully! Please check your email for verification code."
+    
     if not email_sent:
         return schemas.RegisterResponse(
-            message="User registered successfully, but verification email failed to send. Please contact support.",
+            message="Registration completed, but verification email failed to send. Please contact support.",
             email_sent=False,
             user=user_response
         )
     
     return schemas.RegisterResponse(
-        message="User registered successfully! Please check your email for verification code.",
+        message=success_message,
         email_sent=True,
         user=user_response
     )
@@ -204,3 +223,138 @@ def resend_verification(request: schemas.ResendVerification, db: Session = Depen
             status_code=500, 
             detail="Failed to send verification email. Please try again later."
         )
+
+@router.post(
+    "/change-password",
+    response_model=schemas.PasswordChangeResponse,
+    summary="🔑 Change Password",
+    description="Change user password by providing current password and new password",
+    responses={
+        200: {"description": "Password changed successfully", "model": schemas.PasswordChangeResponse},
+        400: {"description": "Invalid current password or user not found", "model": schemas.ErrorResponse},
+        422: {"description": "Validation error", "model": schemas.ValidationErrorResponse}
+    }
+)
+def change_password(password_change: schemas.PasswordChange, db: Session = Depends(get_db)):
+    # Attempt to change password
+    result = crud.change_password(
+        db=db, 
+        email=password_change.email,
+        current_password=password_change.current_password,
+        new_password=password_change.new_password
+    )
+    
+    if result is None:
+        raise HTTPException(
+            status_code=400, 
+            detail="User not found. Please check your email address."
+        )
+    
+    if result is False:
+        raise HTTPException(
+            status_code=400, 
+            detail="Current password is incorrect. Please try again."
+        )
+    
+    # Password changed successfully
+    user_response = schemas.UserResponse(
+        id=result.id,
+        email=result.email,
+        nickname=result.nickname,
+        is_verified=result.is_verified
+    )
+    
+    return schemas.PasswordChangeResponse(
+        message="Password changed successfully!",
+        user=user_response
+    )
+
+@router.post(
+    "/forgot-password",
+    response_model=schemas.ForgotPasswordResponse,
+    summary="🔐 Forgot Password",
+    description="Request password reset code via email for users who forgot their password",
+    responses={
+        200: {"description": "Reset code sent successfully", "model": schemas.ForgotPasswordResponse},
+        400: {"description": "User not found or account not verified", "model": schemas.ErrorResponse},
+        422: {"description": "Validation error", "model": schemas.ValidationErrorResponse}
+    }
+)
+def forgot_password(request: schemas.ForgotPasswordRequest, db: Session = Depends(get_db)):
+    # Request password reset
+    result = crud.request_password_reset(db, request.email)
+    
+    if result is None:
+        raise HTTPException(
+            status_code=400, 
+            detail="No account found with this email address."
+        )
+    
+    if result is False:
+        raise HTTPException(
+            status_code=400, 
+            detail="Account not verified. Please verify your email first before resetting password."
+        )
+    
+    # Send password reset email
+    from email_service import email_service
+    email_sent = email_service.send_password_reset_email(
+        to_email=result.email,
+        reset_code=result.verification_code
+    )
+    
+    if email_sent:
+        return schemas.ForgotPasswordResponse(
+            message="Password reset code sent to your email! Check your inbox.",
+            email_sent=True
+        )
+    else:
+        raise HTTPException(
+            status_code=500, 
+            detail="Failed to send reset email. Please try again later."
+        )
+
+@router.post(
+    "/reset-password",
+    response_model=schemas.ResetPasswordResponse,
+    summary="🔓 Reset Password",
+    description="Reset password using email, reset code, and new password",
+    responses={
+        200: {"description": "Password reset successfully", "model": schemas.ResetPasswordResponse},
+        400: {"description": "Invalid reset code or user not found", "model": schemas.ErrorResponse},
+        422: {"description": "Validation error", "model": schemas.ValidationErrorResponse}
+    }
+)
+def reset_password(reset_data: schemas.ResetPasswordConfirm, db: Session = Depends(get_db)):
+    # Reset password with code
+    result = crud.reset_password_with_code(
+        db=db,
+        email=reset_data.email,
+        reset_code=reset_data.reset_code,
+        new_password=reset_data.new_password
+    )
+    
+    if result is None:
+        raise HTTPException(
+            status_code=400, 
+            detail="No account found with this email address."
+        )
+    
+    if result is False:
+        raise HTTPException(
+            status_code=400, 
+            detail="Invalid or expired reset code. Please request a new password reset."
+        )
+    
+    # Password reset successfully
+    user_response = schemas.UserResponse(
+        id=result.id,
+        email=result.email,
+        nickname=result.nickname,
+        is_verified=result.is_verified
+    )
+    
+    return schemas.ResetPasswordResponse(
+        message="Password reset successfully! You can now login with your new password.",
+        user=user_response
+    )
