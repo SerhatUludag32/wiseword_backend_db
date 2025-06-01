@@ -8,11 +8,16 @@ class User(Base):
     id = Column(Integer, primary_key=True, index=True)
     email = Column(String, unique=True, index=True)
     nickname = Column(String)
-    hashed_password = Column(String)
+    hashed_password = Column(String, nullable=True)  # Nullable for Google OAuth users
     is_verified = Column(Boolean, default=False)
     verification_code = Column(String(6), nullable=True)  # 6-digit verification code
     code_expires_at = Column(DateTime, nullable=True)     # Code expiration time
     created_at = Column(DateTime, default=datetime.utcnow)
+    
+    # Google OAuth fields
+    google_id = Column(String, nullable=True, unique=True)  # Google user ID
+    auth_provider = Column(String, default="email")  # "email" or "google"
+    profile_picture = Column(String, nullable=True)  # Google profile picture URL
 
 class Persona(Base):
     __tablename__ = "personas"

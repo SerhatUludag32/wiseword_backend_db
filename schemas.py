@@ -42,6 +42,8 @@ class UserResponse(BaseModel):
     email: str = Field(..., description="User email", example="user@example.com")
     nickname: str = Field(..., description="User display name", example="John Doe")
     is_verified: bool = Field(..., description="Email verification status", example=True)
+    auth_provider: str = Field(..., description="Authentication provider", example="email")
+    profile_picture: Optional[str] = Field(None, description="Profile picture URL", example="https://lh3.googleusercontent.com/...")
 
 class LoginResponse(BaseModel):
     message: str = Field(..., description="Success message", example="Login successful")
@@ -123,3 +125,14 @@ class ValidationErrorDetail(BaseModel):
 
 class ValidationErrorResponse(BaseModel):
     detail: List[ValidationErrorDetail] = Field(..., description="Validation error details")
+
+# Google OAuth Models
+class GoogleAuthRequest(BaseModel):
+    credential: str = Field(..., description="Google ID token from frontend", example="eyJhbGciOiJSUzI1NiIs...")
+
+class GoogleAuthResponse(BaseModel):
+    message: str = Field(..., description="Authentication result", example="Google login successful")
+    access_token: str = Field(..., description="JWT access token", example="eyJhbGciOiJIUzI1NiIs...")
+    token_type: str = Field(..., description="Token type", example="bearer")
+    user: 'UserResponse'
+    is_new_user: bool = Field(..., description="Whether this is a new user registration", example=False)

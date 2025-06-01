@@ -26,7 +26,7 @@ app = FastAPI(
     - ✅ **JWT authentication** with secure tokens
     - ✅ **Real-time streaming responses** (like ChatGPT)
     - ✅ **Persistent chat history** with PostgreSQL
-    - ✅ **Production-ready** deployment on Railway
+    - ✅ **Production-ready** deployment on Render
     
     ### Quick Start:
     1. **Register** → Get verification code via email

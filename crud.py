@@ -16,6 +16,10 @@ def generate_verification_code():
 def get_user_by_email(db: Session, email: str):
     return db.query(models.User).filter(models.User.email == email).first()
 
+def get_user_by_google_id(db: Session, google_id: str):
+    """Get user by Google ID"""
+    return db.query(models.User).filter(models.User.google_id == google_id).first()
+
 def get_user_by_verification_code(db: Session, code: str):
     return db.query(models.User).filter(models.User.verification_code == code).first()
 
@@ -32,6 +36,22 @@ def create_user(db: Session, user: schemas.UserCreate):
         is_verified=False,
         verification_code=verification_code,
         code_expires_at=code_expires_at
+    )
+    db.add(db_user)
+    db.commit()
+    db.refresh(db_user)
+    return db_user
+
+def create_google_user(db: Session, email: str, nickname: str, google_id: str, profile_picture: str = None):
+    """Create a new user from Google OAuth"""
+    db_user = models.User(
+        email=email,
+        nickname=nickname,
+        google_id=google_id,
+        auth_provider="google",
+        is_verified=True,  # Google users are automatically verified
+        profile_picture=profile_picture,
+        hashed_password=None  # No password for Google users
     )
     db.add(db_user)
     db.commit()

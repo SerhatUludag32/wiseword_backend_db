@@ -77,7 +77,9 @@ def register(user: schemas.UserCreate, db: Session = Depends(get_db)):
         id=new_user.id,
         email=new_user.email,
         nickname=new_user.nickname,
-        is_verified=new_user.is_verified
+        is_verified=new_user.is_verified,
+        auth_provider=new_user.auth_provider,
+        profile_picture=new_user.profile_picture
     )
     
     # Determine appropriate message
@@ -140,7 +142,9 @@ def login(user_login: schemas.UserLogin, db: Session = Depends(get_db)):
         id=db_user.id,
         email=db_user.email,
         nickname=db_user.nickname,
-        is_verified=db_user.is_verified
+        is_verified=db_user.is_verified,
+        auth_provider=db_user.auth_provider,
+        profile_picture=db_user.profile_picture
     )
     
     return schemas.LoginResponse(
@@ -178,7 +182,9 @@ def verify_code(verification: schemas.CodeVerification, db: Session = Depends(ge
         id=user.id,
         email=user.email,
         nickname=user.nickname,
-        is_verified=user.is_verified
+        is_verified=user.is_verified,
+        auth_provider=user.auth_provider,
+        profile_picture=user.profile_picture
     )
     
     return schemas.VerificationResponse(
@@ -261,7 +267,9 @@ def change_password(password_change: schemas.PasswordChange, db: Session = Depen
         id=result.id,
         email=result.email,
         nickname=result.nickname,
-        is_verified=result.is_verified
+        is_verified=result.is_verified,
+        auth_provider=result.auth_provider,
+        profile_picture=result.profile_picture
     )
     
     return schemas.PasswordChangeResponse(
@@ -351,10 +359,86 @@ def reset_password(reset_data: schemas.ResetPasswordConfirm, db: Session = Depen
         id=result.id,
         email=result.email,
         nickname=result.nickname,
-        is_verified=result.is_verified
+        is_verified=result.is_verified,
+        auth_provider=result.auth_provider,
+        profile_picture=result.profile_picture
     )
     
     return schemas.ResetPasswordResponse(
         message="Password reset successfully! You can now login with your new password.",
         user=user_response
+    )
+
+@router.post(
+    "/google/login",
+    response_model=schemas.GoogleAuthResponse,
+    summary="🔐 Google OAuth Login",
+    description="Authenticate user with Google ID token and receive JWT access token",
+    responses={
+        200: {"description": "Google login successful", "model": schemas.GoogleAuthResponse},
+        400: {"description": "Invalid Google token or authentication failed", "model": schemas.ErrorResponse},
+        422: {"description": "Validation error", "model": schemas.ValidationErrorResponse}
+    }
+)
+def google_login(google_auth: schemas.GoogleAuthRequest, db: Session = Depends(get_db)):
+    # Import Google OAuth service
+    from google_oauth import google_oauth
+    
+    # Verify Google token
+    user_info = google_oauth.verify_google_token(google_auth.credential)
+    if not user_info:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid Google token. Please try again."
+        )
+    
+    # Check if user exists by Google ID
+    db_user = crud.get_user_by_google_id(db, user_info['google_id'])
+    is_new_user = False
+    
+    if not db_user:
+        # Check if user exists by email (from regular registration)
+        db_user = crud.get_user_by_email(db, user_info['email'])
+        
+        if db_user:
+            # User exists with email but not Google ID - this means they registered with email
+            raise HTTPException(
+                status_code=400,
+                detail="An account with this email already exists. Please login with your email and password."
+            )
+        
+        # Create new Google user
+        db_user = crud.create_google_user(
+            db=db,
+            email=user_info['email'],
+            nickname=user_info['name'] or user_info['email'].split('@')[0],
+            google_id=user_info['google_id'],
+            profile_picture=user_info.get('picture')
+        )
+        is_new_user = True
+        
+        # Send welcome email for new Google users
+        from email_service import email_service
+        email_service.send_welcome_email(db_user.email, db_user.nickname)
+    
+    # Create access token
+    access_token = create_access_token(data={"sub": db_user.email, "user_id": db_user.id})
+    
+    user_response = schemas.UserResponse(
+        id=db_user.id,
+        email=db_user.email,
+        nickname=db_user.nickname,
+        is_verified=db_user.is_verified,
+        auth_provider=db_user.auth_provider,
+        profile_picture=db_user.profile_picture
+    )
+    
+    message = "Welcome to Wise Words!" if is_new_user else "Google login successful"
+    
+    return schemas.GoogleAuthResponse(
+        message=message,
+        access_token=access_token,
+        token_type="bearer",
+        user=user_response,
+        is_new_user=is_new_user
     )
