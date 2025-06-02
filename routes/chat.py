@@ -451,3 +451,31 @@ def get_chat_history(chat_id: int, current_user: models.User = Depends(get_curre
         chat_id=chat_id,
         messages=message_responses
     )
+
+@router.delete(
+    "/{chat_id}",
+    response_model=schemas.ChatDeleteResponse,
+    summary="🗑️ Delete Chat",
+    description="Delete a specific chat session and all its messages (requires authentication)",
+    responses={
+        200: {"description": "Chat deleted successfully", "model": schemas.ChatDeleteResponse},
+        401: {"description": "Authentication required", "model": schemas.ErrorResponse},
+        403: {"description": "Access denied - not your chat", "model": schemas.ErrorResponse},
+        404: {"description": "Chat not found", "model": schemas.ErrorResponse}
+    }
+)
+def delete_chat(chat_id: int, current_user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
+    # Attempt to delete the chat (includes ownership verification)
+    deletion_success = crud.delete_chat(db, chat_id, current_user.id)
+    
+    if not deletion_success:
+        raise HTTPException(
+            status_code=404, 
+            detail=f"Chat with ID {chat_id} not found or you don't have access to it."
+        )
+    
+    return schemas.ChatDeleteResponse(
+        message="Chat deleted successfully",
+        chat_id=chat_id,
+        deleted=True
+    )

@@ -110,6 +110,11 @@ class ChatSummaryResponse(BaseModel):
 class UserChatsResponse(BaseModel):
     chats: List[ChatSummaryResponse] = Field(..., description="User's chat sessions")
 
+class ChatDeleteResponse(BaseModel):
+    message: str = Field(..., description="Delete confirmation", example="Chat deleted successfully")
+    chat_id: int = Field(..., description="Deleted chat session ID", example=1)
+    deleted: bool = Field(..., description="Deletion status", example=True)
+
 # Error Response Models
 class ErrorResponse(BaseModel):
     error: bool = Field(True, description="Error flag")

@@ -202,8 +202,8 @@ def get_user_chats(db: Session, user_id: int):
     return db.query(models.Chat).filter(models.Chat.user_id == user_id).all()
 
 def get_user_chats_with_details(db: Session, user_id: int):
-    """Get user chats with message counts and last message info"""
-    chats = db.query(models.Chat).filter(models.Chat.user_id == user_id).order_by(models.Chat.created_at.desc()).all()
+    """Get user chats with message counts and last message info, sorted by last activity"""
+    chats = db.query(models.Chat).filter(models.Chat.user_id == user_id).all()
     
     chat_details = []
     for chat in chats:
@@ -211,10 +211,10 @@ def get_user_chats_with_details(db: Session, user_id: int):
         messages = db.query(models.Message).filter(models.Message.chat_id == chat.id).order_by(models.Message.timestamp.desc()).all()
         
         last_message = None
-        last_activity = None
+        last_activity = chat.created_at  # Default to creation time
         if messages:
             last_message = messages[0].content[:50] + "..." if len(messages[0].content) > 50 else messages[0].content
-            last_activity = messages[0].timestamp
+            last_activity = messages[0].timestamp  # Use last message time if available
         
         chat_details.append({
             'chat': chat,
@@ -222,6 +222,9 @@ def get_user_chats_with_details(db: Session, user_id: int):
             'last_message': last_message,
             'last_activity': last_activity
         })
+    
+    # Sort by last activity (most recent first)
+    chat_details.sort(key=lambda x: x['last_activity'], reverse=True)
     
     return chat_details
 
@@ -231,6 +234,22 @@ def get_chat_by_id_and_user(db: Session, chat_id: int, user_id: int):
         models.Chat.id == chat_id,
         models.Chat.user_id == user_id
     ).first()
+
+def delete_chat(db: Session, chat_id: int, user_id: int):
+    """Delete a chat and all its messages if it belongs to the specified user"""
+    # First verify the chat belongs to the user
+    chat = get_chat_by_id_and_user(db, chat_id, user_id)
+    if not chat:
+        return False
+    
+    # Delete all messages associated with this chat
+    db.query(models.Message).filter(models.Message.chat_id == chat_id).delete()
+    
+    # Delete the chat itself
+    db.query(models.Chat).filter(models.Chat.id == chat_id).delete()
+    
+    db.commit()
+    return True
 
 # Message operations
 def create_message(db: Session, chat_id: int, sender: str, content: str):
